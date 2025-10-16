@@ -1,0 +1,33 @@
+# Simulation configuration with SEASONAL power outages (more frequent/longer in winter)
+solar_file: input_data/solar_irradiation_values_only.csv
+load_file: input_data/load_profiles/Commercial_450_bed_Hospital.csv
+outage_file: input_data/grid_stability_seasonal_severe.csv  # Severe winter outages
+pv_peak_kw: 750.0
+battery_capacity_kwh: 50000.0
+battery_efficiency: 0.95
+battery_self_discharge: 0.0001
+timestep_hours: 1.0
+output_dir: output
+start_index: 0
+values_only: true
+# Cost parameters:
+grid_import_cost: 0.25  # €/kWh - Cost to buy electricity from grid
+grid_export_price: 0.10 # €/kWh - Price received for selling electricity to grid
+diesel_cost_per_kwh: 0.50  # €/kWh - Cost to generate electricity from diesel
+
+# Scaling factors
+solar_scale_factor: 1.0
+load_scale_factor: 1.0
+
+# Scaling by targets (overrides scale_factor if set)
+target_pv_peak_kw: 750.0
+target_annual_load_kwh: 18300000.0
+
+# Date range for simulation
+start_date: 2024-01-01
+end_date: 2024-12-31
+
+# Seasonal battery management (winter reserve) - CRITICAL for winter outages
+winter_months: [12, 1, 2]  # December, January, February
+winter_min_soc: 0.5        # Minimum 50% SOC during winter months
+outage_min_soc: 0.0        # Allow battery to discharge below winter reserve during outages

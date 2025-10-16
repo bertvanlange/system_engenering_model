@@ -7,7 +7,7 @@ import pandas as pd
 
 # Parameters
 hours_per_year = 8760
-num_long_outages = 2      # e.g., 2 major events
+num_long_outages = 4      # e.g., 2 major events
 long_outage_min = 24      # min duration (hours)
 long_outage_max = 72      # max duration (hours)
 num_short_outages = 10    # e.g., 10 short events

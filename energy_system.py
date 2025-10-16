@@ -7,6 +7,8 @@ import pandas as pd
 import numpy as np
 from typing import Tuple, Dict
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from datetime import datetime, timedelta
 from pathlib import Path
 
 
@@ -106,7 +108,9 @@ class EnergySystem:
     """Complete energy system simulation."""
     
     def __init__(self, pv_peak_kw: float, battery_capacity_kwh: float,
-                 battery_efficiency: float = 0.95, battery_self_discharge: float = 0.0001):
+                 battery_efficiency: float = 0.95, battery_self_discharge: float = 0.0001,
+                 winter_months: list = None, winter_min_soc: float = 0.0,
+                 outage_min_soc: float = 0.0):
         """
         Initialize energy system.
         
@@ -115,13 +119,20 @@ class EnergySystem:
             battery_capacity_kwh: Battery capacity in kWh
             battery_efficiency: Battery efficiency (0-1)
             battery_self_discharge: Battery self-discharge rate per time step
+            winter_months: List of month numbers (1-12) considered as winter (e.g., [12, 1])
+            winter_min_soc: Minimum battery SOC (0-1) to maintain during winter months when grid is available
+            outage_min_soc: Minimum battery SOC (0-1) allowed during outages (grid down). Use 0.0 to allow using reserve.
         """
         self.pv = PVSystem(pv_peak_kw)
         self.battery = Battery(battery_capacity_kwh, battery_efficiency, battery_self_discharge)
         self.results = []
+        self.winter_months = winter_months if winter_months else []
+        self.winter_min_soc = winter_min_soc
+        self.outage_min_soc = outage_min_soc
         
     def simulate_timestep(self, irradiation_w_m2: float, load_kw: float, 
-                         grid_stable: bool, timestep_hours: float = 1.0) -> Dict:
+                         grid_stable: bool, timestep_hours: float = 1.0,
+                         current_month: int = None) -> Dict:
         """
         Simulate one time step of the energy system.
         
@@ -137,6 +148,7 @@ class EnergySystem:
             load_kw: Load power demand in kW
             grid_stable: Whether grid is stable
             timestep_hours: Time step duration in hours
+            current_month: Current month (1-12) for seasonal battery management
             
         Returns:
             Dictionary with timestep results
@@ -147,6 +159,13 @@ class EnergySystem:
         
         # Load energy demand
         load_energy_kwh = load_kw * timestep_hours
+
+        # Determine minimum reserve policy
+        # If grid is down, allow using reserve down to outage_min_soc.
+        # If grid is up and it's winter, keep winter_min_soc. Otherwise no reserve.
+        is_winter = current_month in self.winter_months if current_month else False
+        effective_min_soc = self.outage_min_soc if not grid_stable else (self.winter_min_soc if is_winter else 0.0)
+        min_battery_energy = effective_min_soc * self.battery.capacity_kwh
         
         # Initialize energy flows
         pv_to_load = 0
@@ -166,9 +185,20 @@ class EnergySystem:
             pv_to_battery = self.battery.charge(remaining_pv, timestep_hours)
             remaining_pv -= pv_to_battery
             
-        # Step 3: If load not satisfied, discharge battery
+        # Step 3: If load not satisfied, discharge battery (respecting reserve policy)
         if remaining_load > 0:
-            battery_to_load = self.battery.discharge(remaining_load, timestep_hours)
+            # Calculate available battery energy above the reserve level
+            available_battery_energy = max(0, self.battery.energy_kwh - min_battery_energy)
+            max_discharge = available_battery_energy * self.battery.efficiency
+            
+            # Discharge only what's available above the reserve
+            requested_discharge = remaining_load
+            if max_discharge >= requested_discharge:
+                battery_to_load = self.battery.discharge(requested_discharge, timestep_hours)
+            else:
+                # Can only discharge up to the reserve limit
+                battery_to_load = self.battery.discharge(max_discharge / self.battery.efficiency, timestep_hours)
+            
             remaining_load -= battery_to_load
             
         # Step 4: If load still not satisfied and grid is stable, import from grid
@@ -214,25 +244,36 @@ class EnergySystem:
         self.results.append(result)
         return result
     
-    def simulate(self, data: pd.DataFrame, timestep_hours: float = 1.0) -> pd.DataFrame:
+    def simulate(self, data: pd.DataFrame, timestep_hours: float = 1.0,
+                 start_date: datetime = None) -> pd.DataFrame:
         """
         Run full simulation.
         
         Args:
             data: DataFrame with columns: 'irradiation_w_m2', 'load_kw', 'grid_stable'
             timestep_hours: Time step duration in hours
+            start_date: Starting date for the simulation (used for seasonal rules)
             
         Returns:
             DataFrame with simulation results
         """
         self.results = []
         
+        # If no start date provided, assume January 1st
+        if start_date is None:
+            start_date = datetime(2024, 1, 1)
+        
         for idx, row in data.iterrows():
+            # Calculate current date based on timestep
+            current_date = start_date + timedelta(hours=idx * timestep_hours)
+            current_month = current_date.month
+            
             self.simulate_timestep(
                 row['irradiation_w_m2'],
                 row['load_kw'],
                 row['grid_stable'],
-                timestep_hours
+                timestep_hours,
+                current_month
             )
         
         results_df = pd.DataFrame(self.results)
@@ -247,37 +288,45 @@ class EnergySystem:
             results_df: DataFrame with simulation results
             save_path: Optional path to save figure
         """
-        fig, axes = plt.subplots(5, 1, figsize=(12, 14))
+        fig, axes = plt.subplots(5, 1, figsize=(14, 16))
         fig.suptitle('Energy System Simulation Results', fontsize=16, fontweight='bold')
+        
+        # Convert hours to dates for x-axis
+        start_date = datetime(2024, 1, 1)
+        dates = [start_date + timedelta(hours=i) for i in range(len(results_df))]
         
         # Plot 1: PV Generation and Load
         ax = axes[0]
-        ax.plot(results_df.index, results_df['pv_generation_kwh'], 
+        ax.plot(dates, results_df['pv_generation_kwh'], 
                 label='PV Generation', color='orange', linewidth=2)
-        ax.plot(results_df.index, results_df['load_kwh'], 
+        ax.plot(dates, results_df['load_kwh'], 
                 label='Load', color='red', linewidth=2)
         ax.set_ylabel('Energy (kWh)', fontsize=11)
         ax.set_title('PV Generation and Load', fontsize=12, fontweight='bold')
         ax.legend(loc='upper right')
         ax.grid(True, alpha=0.3)
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+        ax.xaxis.set_major_locator(mdates.MonthLocator())
         
         # Plot 2: Battery State of Charge
         ax = axes[1]
-        ax.plot(results_df.index, results_df['battery_soc'] * 100, 
+        ax.plot(dates, results_df['battery_soc'] * 100, 
                 label='Battery SOC', color='green', linewidth=2)
         ax.set_ylabel('SOC (%)', fontsize=11)
         ax.set_title('Battery State of Charge', fontsize=12, fontweight='bold')
         ax.set_ylim([0, 100])
         ax.legend(loc='upper right')
         ax.grid(True, alpha=0.3)
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+        ax.xaxis.set_major_locator(mdates.MonthLocator())
         
         # Plot 3: Grid Import/Export
         ax = axes[2]
-        ax.plot(results_df.index, results_df['grid_import'], 
+        ax.plot(dates, results_df['grid_import'], 
                 label='Grid Import', color='red', linewidth=2)
-        ax.plot(results_df.index, results_df['grid_export'], 
+        ax.plot(dates, results_df['grid_export'], 
                 label='Grid Export', color='blue', linewidth=2)
-        ax.plot(results_df.index, results_df['net_grid'], 
+        ax.plot(dates, results_df['net_grid'], 
                 label='Net Grid (Import-Export)', color='purple', 
                 linewidth=2, linestyle='--')
         ax.set_ylabel('Energy (kWh)', fontsize=11)
@@ -285,30 +334,36 @@ class EnergySystem:
         ax.legend(loc='upper right')
         ax.grid(True, alpha=0.3)
         ax.axhline(y=0, color='black', linestyle='-', linewidth=0.5)
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+        ax.xaxis.set_major_locator(mdates.MonthLocator())
         
         # Plot 4: Energy Flow Distribution
         ax = axes[3]
-        ax.plot(results_df.index, results_df['pv_to_load'], 
+        ax.plot(dates, results_df['pv_to_load'], 
                 label='PV to Load', color='orange', linewidth=1.5, alpha=0.7)
-        ax.plot(results_df.index, results_df['pv_to_battery'], 
+        ax.plot(dates, results_df['pv_to_battery'], 
                 label='PV to Battery', color='green', linewidth=1.5, alpha=0.7)
-        ax.plot(results_df.index, results_df['battery_to_load'], 
+        ax.plot(dates, results_df['battery_to_load'], 
                 label='Battery to Load', color='darkgreen', linewidth=1.5, alpha=0.7)
         ax.set_ylabel('Energy (kWh)', fontsize=11)
         ax.set_title('Energy Flow Distribution', fontsize=12, fontweight='bold')
         ax.legend(loc='upper right')
         ax.grid(True, alpha=0.3)
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+        ax.xaxis.set_major_locator(mdates.MonthLocator())
         
         # Plot 5: Self-Sufficiency Rate
         ax = axes[4]
-        ax.plot(results_df.index, results_df['self_sufficiency'] * 100, 
+        ax.plot(dates, results_df['self_sufficiency'] * 100, 
                 label='Self-Sufficiency', color='darkblue', linewidth=2)
         ax.set_ylabel('Self-Sufficiency (%)', fontsize=11)
-        ax.set_xlabel('Time', fontsize=11)
+        ax.set_xlabel('Time (Months)', fontsize=11)
         ax.set_title('Self-Sufficiency Rate', fontsize=12, fontweight='bold')
         ax.set_ylim([0, 100])
         ax.legend(loc='upper right')
         ax.grid(True, alpha=0.3)
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+        ax.xaxis.set_major_locator(mdates.MonthLocator())
         
         # Mark grid instability periods in all plots
         if 'grid_stable' in results_df.columns:
@@ -316,7 +371,17 @@ class EnergySystem:
                 unstable_periods = results_df[results_df['grid_stable'] == False]
                 if len(unstable_periods) > 0:
                     for idx in unstable_periods.index:
-                        ax.axvspan(idx, idx, alpha=0.1, color='red')
+                        if idx < len(dates):
+                            ax.axvline(x=dates[idx], alpha=0.1, color='red', linewidth=0.5)
+        
+        # Mark blackout periods (unmet load > 0) in all plots with darker lines
+        if 'unmet_load' in results_df.columns:
+            for ax in axes:
+                blackout_periods = results_df[results_df['unmet_load'] > 0]
+                if len(blackout_periods) > 0:
+                    for idx in blackout_periods.index:
+                        if idx < len(dates):
+                            ax.axvline(x=dates[idx], alpha=0.3, color='black', linewidth=0.7)
         
         plt.tight_layout()
         

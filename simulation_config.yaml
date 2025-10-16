@@ -11,9 +11,9 @@ output_dir: output
 start_index: 0
 values_only: true
 # Optional cost parameters for future use:
-# grid_import_cost: 0.25  # €/kWh
-# grid_export_price: 0.10 # €/kWh
-# diesel_cost: 1.50       # €/liter
+grid_import_cost: 0.25  # €/kWh - Cost to buy electricity from grid
+grid_export_price: 0.10 # €/kWh - Price received for selling electricity to grid
+diesel_cost_per_kwh: 0.50  # €/kWh - Cost to generate electricity from diesel (typical: 0.40-0.60)
 
 # Scaling factors
 solar_scale_factor: 1.0   # Multiply all solar input values (e.g., 1.5 for 50% larger park)
@@ -25,5 +25,10 @@ target_annual_load_kwh: 18300000.0   # Desired total annual load (kWh); load wil
 
 # Date range for simulation (optional, format: YYYY-MM-DD)
 # Leave commented out to simulate the entire year
-start_date: 2024-10-01
+start_date: 2024-01-01
 end_date: 2024-12-31
+
+# Seasonal battery management (winter reserve)
+winter_months: [12, 1]  # December and January
+winter_min_soc: 0.5     # Minimum 50% SOC during winter months to handle outages
+outage_min_soc: 0.0     # Minimum SOC allowed during outages (0.0 = allow using reserve)

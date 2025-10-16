@@ -6,8 +6,291 @@ import argparse
 from pathlib import Path
 import pandas as pd
 import yaml
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from datetime import datetime, timedelta
 from energy_system import EnergySystem, load_input_data
 from generate_input_data import generate_sample_data
+
+
+def hours_to_dates(num_hours, start_date='2024-01-01'):
+    """
+    Convert hour indices to datetime objects for plotting.
+    
+    Args:
+        num_hours: Number of hours
+        start_date: Start date as string (YYYY-MM-DD)
+        
+    Returns:
+        List of datetime objects
+    """
+    start = datetime.strptime(start_date, '%Y-%m-%d')
+    return [start + timedelta(hours=i) for i in range(num_hours)]
+
+
+def plot_cumulative_energy(results: pd.DataFrame, save_path: str = None):
+    """
+    Plot cumulative energy flows over time.
+    
+    Args:
+        results: DataFrame with simulation results
+        save_path: Path to save the plot (optional)
+    """
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10))
+    
+    # Convert hours to dates
+    dates = hours_to_dates(len(results))
+    
+    # Calculate cumulative values
+    cumulative_pv = results['pv_generation_kwh'].cumsum()
+    cumulative_grid_import = results['grid_import'].cumsum()
+    cumulative_grid_export = results['grid_export'].cumsum()
+    cumulative_load = results['load_kwh'].cumsum()
+    
+    # Plot 1: Cumulative Energy Flows
+    ax1.plot(dates, cumulative_pv, label='Total PV Generation', linewidth=2, color='orange')
+    ax1.plot(dates, cumulative_load, label='Total Load Consumption', linewidth=2, color='blue')
+    ax1.plot(dates, cumulative_grid_import, label='Total Grid Import', linewidth=2, color='red')
+    ax1.plot(dates, cumulative_grid_export, label='Total Grid Export', linewidth=2, color='green')
+    ax1.set_xlabel('Time (Months)', fontsize=12)
+    ax1.set_ylabel('Cumulative Energy (kWh)')
+    ax1.set_title('Cumulative Energy Flows')
+    ax1.legend(loc='upper left')
+    ax1.grid(True, alpha=0.3)
+    ax1.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+    ax1.xaxis.set_major_locator(mdates.MonthLocator())
+    ax1.xaxis.set_minor_locator(mdates.MonthLocator())
+    
+    # Plot 2: Net Grid Energy (Export - Import, positive = profit)
+    net_grid = cumulative_grid_export - cumulative_grid_import
+    ax2.plot(dates, net_grid, linewidth=2, color='purple')
+    ax2.axhline(y=0, color='black', linestyle='--', alpha=0.5)
+    ax2.fill_between(dates, net_grid, 0, 
+                      where=(net_grid >= 0), color='green', alpha=0.3, label='Net Export (Profit)')
+    ax2.fill_between(dates, net_grid, 0, 
+                      where=(net_grid < 0), color='red', alpha=0.3, label='Net Import (Cost)')
+    ax2.set_xlabel('Time (Months)', fontsize=12)
+    ax2.set_ylabel('Net Grid Energy (kWh)')
+    ax2.set_title('Cumulative Net Grid Energy (Export - Import)')
+    ax2.legend(loc='upper left')
+    ax2.grid(True, alpha=0.3)
+    ax2.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+    ax2.xaxis.set_major_locator(mdates.MonthLocator())
+    ax2.xaxis.set_minor_locator(mdates.MonthLocator())
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.close()
+    else:
+        plt.show()
+
+
+def simulate_baseline_system(data: pd.DataFrame, grid_import_cost: float, 
+                             diesel_cost_per_kwh: float = None):
+    """
+    Simulate a baseline system with only grid and diesel generator.
+    
+    Args:
+        data: DataFrame with load_kw and grid_stable columns
+        grid_import_cost: Cost per kWh from grid
+        diesel_cost_per_kwh: Cost per kWh from diesel generator
+        
+    Returns:
+        Dictionary with baseline system metrics
+    """
+    total_load = data['load_kw'].sum()
+    
+    # When grid is stable, use grid; when unstable, use diesel
+    grid_available_load = data[data['grid_stable'] == True]['load_kw'].sum()
+    diesel_load = data[data['grid_stable'] == False]['load_kw'].sum()
+    
+    # Calculate costs
+    grid_cost = grid_available_load * grid_import_cost
+    diesel_cost = diesel_load * diesel_cost_per_kwh if diesel_cost_per_kwh else 0
+    total_cost = grid_cost + diesel_cost
+    
+    return {
+        'total_load': total_load,
+        'grid_energy': grid_available_load,
+        'diesel_energy': diesel_load,
+        'grid_cost': grid_cost,
+        'diesel_cost': diesel_cost,
+        'total_cost': total_cost
+    }
+
+
+def plot_cost_over_time(results: pd.DataFrame, data: pd.DataFrame, 
+                       grid_import_cost: float, grid_export_price: float,
+                       diesel_cost_per_kwh: float, save_path: str = None):
+    """
+    Plot cumulative costs over time for both systems.
+    
+    Args:
+        results: DataFrame with solar system simulation results
+        data: DataFrame with load and grid stability data
+        grid_import_cost: Cost per kWh from grid
+        grid_export_price: Price per kWh for grid export
+        diesel_cost_per_kwh: Cost per kWh from diesel
+        save_path: Path to save the plot (optional)
+    """
+    fig, ax = plt.subplots(1, 1, figsize=(14, 8))
+    
+    # Convert hours to dates
+    dates = hours_to_dates(len(data))
+    
+    # Calculate baseline cumulative costs
+    baseline_grid_cost = []
+    baseline_diesel_cost = []
+    for i in range(len(data)):
+        if data.iloc[i]['grid_stable']:
+            baseline_grid_cost.append(data.iloc[i]['load_kw'] * grid_import_cost)
+            baseline_diesel_cost.append(0)
+        else:
+            baseline_grid_cost.append(0)
+            baseline_diesel_cost.append(data.iloc[i]['load_kw'] * diesel_cost_per_kwh)
+    
+    cumulative_baseline = (pd.Series(baseline_grid_cost) + pd.Series(baseline_diesel_cost)).cumsum()
+    
+    # Calculate solar system cumulative costs (negative = profit)
+    solar_import_costs = results['grid_import'] * grid_import_cost
+    solar_export_revenue = results['grid_export'] * grid_export_price
+    solar_net_cost = solar_import_costs - solar_export_revenue
+    cumulative_solar = solar_net_cost.cumsum()
+    
+    # Plot both systems
+    ax.plot(dates, cumulative_baseline, label='Baseline (Grid + Diesel)', linewidth=2.5, color='red', alpha=0.8)
+    ax.plot(dates, cumulative_solar, label='Solar + Battery', linewidth=2.5, color='green', alpha=0.8)
+    ax.axhline(y=0, color='black', linestyle='--', alpha=0.5)
+    
+    # Fill area between curves to show savings
+    ax.fill_between(dates, cumulative_baseline, cumulative_solar, 
+                     alpha=0.2, color='gold', label='Savings Area')
+    
+    ax.set_xlabel('Time (Months)', fontsize=12)
+    ax.set_ylabel('Cumulative Cost / Profit (€)', fontsize=12)
+    ax.set_title('Cumulative Cost Comparison Over Time', fontsize=14, fontweight='bold')
+    ax.legend(loc='upper left', fontsize=11)
+    ax.grid(True, alpha=0.3)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+    ax.xaxis.set_major_locator(mdates.MonthLocator())
+    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+    
+    # Add final values as annotations
+    final_baseline = cumulative_baseline.iloc[-1]
+    final_solar = cumulative_solar.iloc[-1]
+    ax.annotate(f'Final: €{final_baseline:,.0f}', 
+                xy=(dates[-1], final_baseline), 
+                xytext=(-80, -30), textcoords='offset points',
+                fontsize=10, fontweight='bold', color='darkred',
+                bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.8),
+                arrowprops=dict(arrowstyle='->', color='darkred'))
+    
+    profit_label = f'Final: €{final_solar:,.0f}\n(Profit!)' if final_solar < 0 else f'Final: €{final_solar:,.0f}'
+    ax.annotate(profit_label, 
+                xy=(dates[-1], final_solar), 
+                xytext=(-80, 30), textcoords='offset points',
+                fontsize=10, fontweight='bold', color='darkgreen',
+                bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.8),
+                arrowprops=dict(arrowstyle='->', color='darkgreen'))
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.close()
+    else:
+        plt.show()
+
+
+def plot_cost_comparison(baseline_costs: dict, solar_import_cost: float, 
+                        solar_export_revenue: float, save_path: str = None):
+    """
+    Create a graphical comparison of costs between baseline and solar+battery systems.
+    
+    Args:
+        baseline_costs: Dictionary with baseline system costs
+        solar_import_cost: Cost for grid import in solar system
+        solar_export_revenue: Revenue from grid export in solar system
+        save_path: Path to save the plot (optional)
+    """
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
+    
+    # Plot 1: Cost Breakdown Comparison
+    systems = ['Baseline\n(Grid + Diesel)', 'Solar + Battery']
+    
+    # Baseline costs (positive = cost)
+    baseline_grid = baseline_costs['grid_cost']
+    baseline_diesel = baseline_costs['diesel_cost']
+    baseline_total = baseline_costs['total_cost']
+    
+    # Solar system (positive = cost, negative = revenue)
+    solar_net = solar_import_cost - solar_export_revenue
+    
+    # Create stacked bar for baseline
+    ax1.bar(0, baseline_grid, label='Grid Cost', color='red', alpha=0.7)
+    ax1.bar(0, baseline_diesel, bottom=baseline_grid, label='Diesel Cost', color='orange', alpha=0.7)
+    
+    # Create bar for solar system
+    if solar_net >= 0:
+        # Net cost
+        ax1.bar(1, solar_import_cost, label='Grid Import Cost', color='salmon', alpha=0.7)
+        ax1.bar(1, -solar_export_revenue, bottom=solar_import_cost, label='Grid Export Revenue', color='lightgreen', alpha=0.7)
+    else:
+        # Net profit
+        ax1.bar(1, solar_import_cost, label='Grid Import Cost', color='salmon', alpha=0.7)
+        ax1.bar(1, -solar_export_revenue, bottom=solar_import_cost, label='Grid Export Revenue', color='lightgreen', alpha=0.7)
+    
+    ax1.axhline(y=0, color='black', linestyle='-', linewidth=0.8)
+    ax1.set_ylabel('Cost / Revenue (€)', fontsize=12)
+    ax1.set_title('Cost Breakdown Comparison', fontsize=14, fontweight='bold')
+    ax1.set_xticks([0, 1])
+    ax1.set_xticklabels(systems, fontsize=11)
+    ax1.legend(loc='upper right')
+    ax1.grid(True, alpha=0.3, axis='y')
+    
+    # Add value labels
+    ax1.text(0, baseline_total + 50000, f'€{baseline_total:,.0f}', 
+             ha='center', va='bottom', fontsize=11, fontweight='bold', color='darkred')
+    ax1.text(1, solar_net - 50000 if solar_net < 0 else solar_net + 50000, 
+             f'€{solar_net:,.0f}', ha='center', 
+             va='top' if solar_net < 0 else 'bottom', 
+             fontsize=11, fontweight='bold', 
+             color='darkgreen' if solar_net < 0 else 'darkred')
+    
+    # Plot 2: Net Cost/Profit Comparison (simplified)
+    net_values = [baseline_total, solar_net]
+    colors = ['red' if v > 0 else 'green' for v in net_values]
+    bars = ax2.bar(systems, net_values, color=colors, alpha=0.7, edgecolor='black', linewidth=1.5)
+    
+    ax2.axhline(y=0, color='black', linestyle='-', linewidth=1)
+    ax2.set_ylabel('Net Annual Cost / Profit (€)', fontsize=12)
+    ax2.set_title('Net Annual Financial Comparison', fontsize=14, fontweight='bold')
+    ax2.grid(True, alpha=0.3, axis='y')
+    
+    # Add value labels on bars
+    for i, (bar, value) in enumerate(zip(bars, net_values)):
+        label_y = value + (50000 if value > 0 else -50000)
+        va = 'bottom' if value > 0 else 'top'
+        label_text = f'Cost: €{value:,.0f}' if value > 0 else f'Profit: €{abs(value):,.0f}'
+        ax2.text(i, label_y, label_text, ha='center', va=va, 
+                fontsize=11, fontweight='bold')
+    
+    # Add savings annotation
+    savings = baseline_total - solar_net
+    ax2.text(0.5, max(net_values) * 0.5, 
+             f'💰 Total Savings:\n€{savings:,.0f}\n({(savings/baseline_total)*100:.1f}% reduction)',
+             ha='center', va='center', fontsize=13, fontweight='bold',
+             bbox=dict(boxstyle='round,pad=0.8', facecolor='yellow', alpha=0.7, edgecolor='black'))
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.close()
+    else:
+        plt.show()
 
 
 def run_simulation(irradiation_file: str, load_file: str, grid_stability_file: str,
@@ -62,6 +345,14 @@ def run_simulation(irradiation_file: str, load_file: str, grid_stability_file: s
         # Date range for simulation
         start_date = config.get('start_date', None)
         end_date = config.get('end_date', None)
+        # Cost parameters
+        grid_import_cost = config.get('grid_import_cost', None)
+        grid_export_price = config.get('grid_export_price', None)
+        diesel_cost_per_kwh = config.get('diesel_cost_per_kwh', None)
+        # Seasonal battery management
+        winter_months = config.get('winter_months', [])
+        winter_min_soc = config.get('winter_min_soc', 0.0)
+        outage_min_soc = config.get('outage_min_soc', 0.0)
     else:
         target_pv_peak_kw = None
         target_annual_load_kwh = None
@@ -69,6 +360,12 @@ def run_simulation(irradiation_file: str, load_file: str, grid_stability_file: s
         load_scale_factor = 1.0
         start_date = None
         end_date = None
+        grid_import_cost = None
+        grid_export_price = None
+        diesel_cost_per_kwh = None
+        winter_months = []
+        winter_min_soc = 0.0
+        outage_min_soc = 0.0
     # Load input data
     print("\nLoading input data...")
     if values_only:
@@ -187,17 +484,32 @@ def run_simulation(irradiation_file: str, load_file: str, grid_stability_file: s
     print(f"  Battery capacity: {battery_capacity_kwh} kWh")
     print(f"  Battery efficiency: {battery_efficiency * 100}%")
     print(f"  Battery self-discharge: {battery_self_discharge * 100}% per time step")
+    if winter_months and winter_min_soc > 0:
+        print(f"  Winter reserve: {winter_min_soc * 100}% SOC in months {winter_months}")
+    if outage_min_soc is not None:
+        print(f"  Outage reserve minimum SOC: {outage_min_soc * 100}% (allowed during outages)")
     
     system = EnergySystem(
         pv_peak_kw=pv_peak_kw,
         battery_capacity_kwh=battery_capacity_kwh,
         battery_efficiency=battery_efficiency,
-        battery_self_discharge=battery_self_discharge
+        battery_self_discharge=battery_self_discharge,
+        winter_months=winter_months,
+        winter_min_soc=winter_min_soc,
+        outage_min_soc=outage_min_soc
     )
     
     # Run simulation
     print("\nRunning simulation...")
-    results = system.simulate(data, timestep_hours=timestep_hours)
+    # Convert start_date string to datetime if provided
+    sim_start_date = None
+    if start_date:
+        try:
+            sim_start_date = datetime.strptime(start_date, '%Y-%m-%d')
+        except:
+            sim_start_date = datetime(2024, 1, 1)
+    
+    results = system.simulate(data, timestep_hours=timestep_hours, start_date=sim_start_date)
     
     # Save results
     results_file = output_path / "simulation_results.csv"
@@ -224,6 +536,26 @@ def run_simulation(irradiation_file: str, load_file: str, grid_stability_file: s
     print(f"Average self-sufficiency: {avg_self_sufficiency * 100:.2f}%")
     print(f"Total unmet load: {total_unmet_load:.2f} kWh")
     
+    # Calculate costs if specified
+    if grid_import_cost is not None or grid_export_price is not None:
+        print("\n" + "-" * 60)
+        print("Financial Summary")
+        print("-" * 60)
+        if grid_import_cost is not None:
+            import_cost = total_grid_import * grid_import_cost
+            print(f"Grid import cost: €{import_cost:,.2f} (@ €{grid_import_cost}/kWh)")
+        if grid_export_price is not None:
+            export_revenue = total_grid_export * grid_export_price
+            print(f"Grid export revenue: €{export_revenue:,.2f} (@ €{grid_export_price}/kWh)")
+        if grid_import_cost is not None and grid_export_price is not None:
+            net_balance = export_revenue - import_cost
+            print(f"\nNet electricity balance: €{net_balance:,.2f}")
+            if net_balance > 0:
+                print(f"  → Net profit: €{net_balance:,.2f} (You earned money!)")
+            else:
+                print(f"  → Net cost: €{abs(net_balance):,.2f} (You paid this amount)")
+
+    
     battery_cycles = results['battery_soc'].diff().abs().sum() / 2
     print(f"\nBattery charge/discharge cycles: {battery_cycles:.2f}")
     print(f"Final battery SOC: {results['battery_soc'].iloc[-1] * 100:.2f}%")
@@ -236,6 +568,53 @@ def run_simulation(irradiation_file: str, load_file: str, grid_stability_file: s
     plot_file = output_path / "simulation_results.png"
     system.plot_results(results, save_path=str(plot_file))
     print(f"Plots saved to: {plot_file}")
+    
+    # Create cumulative energy flow plot
+    print("Generating cumulative energy flow plot...")
+    cumulative_plot_file = output_path / "cumulative_energy_flows.png"
+    plot_cumulative_energy(results, save_path=str(cumulative_plot_file))
+    print(f"Cumulative energy plot saved to: {cumulative_plot_file}")
+    
+    # Compare with baseline system (grid + diesel)
+    if grid_import_cost is not None:
+        print("\n" + "=" * 60)
+        print("Baseline System Comparison (Grid + Diesel Generator)")
+        print("=" * 60)
+        
+        baseline = simulate_baseline_system(data, grid_import_cost, diesel_cost_per_kwh)
+        
+        print(f"\nBaseline System (No Solar/Battery):")
+        print(f"  Grid energy: {baseline['grid_energy']:,.2f} kWh")
+        print(f"  Diesel energy: {baseline['diesel_energy']:,.2f} kWh")
+        print(f"  Grid cost: €{baseline['grid_cost']:,.2f}")
+        if diesel_cost_per_kwh:
+            print(f"  Diesel cost: €{baseline['diesel_cost']:,.2f}")
+        print(f"  Total cost: €{baseline['total_cost']:,.2f}")
+        
+        print(f"\nSolar + Battery System:")
+        if grid_import_cost is not None and grid_export_price is not None:
+            solar_system_cost = import_cost - export_revenue
+            print(f"  Net cost: €{-solar_system_cost:,.2f}")
+            
+            savings = baseline['total_cost'] - (-solar_system_cost)
+            print(f"\n💰 Total Savings: €{savings:,.2f}")
+            if baseline['total_cost'] > 0:
+                savings_pct = (savings / baseline['total_cost']) * 100
+                print(f"   Cost Reduction: {savings_pct:.1f}%")
+            
+            # Create cost comparison plot
+            print("\nGenerating cost comparison chart...")
+            comparison_plot_file = output_path / "cost_comparison.png"
+            plot_cost_comparison(baseline, import_cost, export_revenue, 
+                               save_path=str(comparison_plot_file))
+            print(f"Cost comparison chart saved to: {comparison_plot_file}")
+            
+            # Create cost over time plot
+            print("Generating cost over time chart...")
+            cost_time_plot_file = output_path / "cost_over_time.png"
+            plot_cost_over_time(results, data, grid_import_cost, grid_export_price,
+                              diesel_cost_per_kwh, save_path=str(cost_time_plot_file))
+            print(f"Cost over time chart saved to: {cost_time_plot_file}")
     
     print("\n" + "=" * 60)
     print("Simulation completed successfully!")
