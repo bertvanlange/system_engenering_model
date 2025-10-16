@@ -313,7 +313,7 @@ class EnergySystem:
         # Mark grid instability periods in all plots
         if 'grid_stable' in results_df.columns:
             for ax in axes:
-                unstable_periods = results_df[~results_df['grid_stable']]
+                unstable_periods = results_df[results_df['grid_stable'] == False]
                 if len(unstable_periods) > 0:
                     for idx in unstable_periods.index:
                         ax.axvspan(idx, idx, alpha=0.1, color='red')

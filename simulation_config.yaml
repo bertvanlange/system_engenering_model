@@ -1,0 +1,29 @@
+# Example simulation configuration for the energy system model
+solar_file: input_data/solar_irradiation_values_only.csv
+load_file: input_data/load_profiles/Commercial_450_bed_Hospital.csv
+outage_file: input_data/grid_stability_random_texas.csv
+pv_peak_kw: 750.0
+battery_capacity_kwh: 50000.0
+battery_efficiency: 0.95
+battery_self_discharge: 0.0001
+timestep_hours: 1.0
+output_dir: output
+start_index: 0
+values_only: true
+# Optional cost parameters for future use:
+# grid_import_cost: 0.25  # €/kWh
+# grid_export_price: 0.10 # €/kWh
+# diesel_cost: 1.50       # €/liter
+
+# Scaling factors
+solar_scale_factor: 1.0   # Multiply all solar input values (e.g., 1.5 for 50% larger park)
+load_scale_factor: 1.0    # Multiply all load input values (e.g., 0.8 for 20% smaller load)
+
+# New: scaling by targets (overrides scale_factor if set)
+target_pv_peak_kw: 750.0           # Desired installed PV peak (kW); sets pv_peak_kw in simulation
+target_annual_load_kwh: 18300000.0   # Desired total annual load (kWh); load will be scaled to match this
+
+# Date range for simulation (optional, format: YYYY-MM-DD)
+# Leave commented out to simulate the entire year
+start_date: 2024-10-01
+end_date: 2024-12-31
