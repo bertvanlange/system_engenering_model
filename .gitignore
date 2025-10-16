@@ -33,10 +33,7 @@ ENV/
 *~
 
 # Output files
-output/
-input_data/
-*.png
-*.csv
+
 
 # Jupyter Notebook
 .ipynb_checkpoints
