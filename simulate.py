@@ -564,10 +564,93 @@ def run_simulation(irradiation_file: str, load_file: str, grid_stability_file: s
     
     results = system.simulate(data, timestep_hours=timestep_hours, start_date=sim_start_date)
     
+    # Annotate blackout periods (when load is not fully served)
+    results['blackout'] = results['unmet_load'] > 0
+    
+    # Detect contiguous blackout events and export details
+    blackout_events = []
+    in_event = False
+    event_start = None
+    for i, is_blackout in enumerate(results['blackout'].values):
+        if is_blackout and not in_event:
+            in_event = True
+            event_start = i
+        elif not is_blackout and in_event:
+            # event ends at i-1
+            event_end = i - 1
+            event_slice = results.iloc[event_start:event_end+1]
+            duration = event_end - event_start + 1
+            unserved = float(event_slice['unmet_load'].sum())
+            min_soc = float((event_slice['battery_soc'] * 100).min()) if 'battery_soc' in event_slice else None
+            avg_soc = float((event_slice['battery_soc'] * 100).mean()) if 'battery_soc' in event_slice else None
+            grid_down_ratio = float((~event_slice['grid_stable']).mean()) if 'grid_stable' in event_slice else None
+            # timestamps
+            if sim_start_date is None:
+                sim_start_date = datetime(2024, 1, 1)
+            start_ts = sim_start_date + timedelta(hours=event_start)
+            end_ts = sim_start_date + timedelta(hours=event_end)
+            blackout_events.append({
+                'event_id': len(blackout_events) + 1,
+                'start_index': event_start,
+                'end_index': event_end,
+                'start_time': start_ts,
+                'end_time': end_ts,
+                'duration_hours': duration,
+                'unserved_energy_kwh': unserved,
+                'min_battery_soc_pct': min_soc,
+                'avg_battery_soc_pct': avg_soc,
+                'grid_down_fraction': grid_down_ratio
+            })
+            in_event = False
+            event_start = None
+    # If still in event at the end
+    if in_event and event_start is not None:
+        event_end = len(results) - 1
+        event_slice = results.iloc[event_start:event_end+1]
+        duration = event_end - event_start + 1
+        unserved = float(event_slice['unmet_load'].sum())
+        min_soc = float((event_slice['battery_soc'] * 100).min()) if 'battery_soc' in event_slice else None
+        avg_soc = float((event_slice['battery_soc'] * 100).mean()) if 'battery_soc' in event_slice else None
+        grid_down_ratio = float((~event_slice['grid_stable']).mean()) if 'grid_stable' in event_slice else None
+        if sim_start_date is None:
+            sim_start_date = datetime(2024, 1, 1)
+        start_ts = sim_start_date + timedelta(hours=event_start)
+        end_ts = sim_start_date + timedelta(hours=event_end)
+        blackout_events.append({
+            'event_id': len(blackout_events) + 1,
+            'start_index': event_start,
+            'end_index': event_end,
+            'start_time': start_ts,
+            'end_time': end_ts,
+            'duration_hours': duration,
+            'unserved_energy_kwh': unserved,
+            'min_battery_soc_pct': min_soc,
+            'avg_battery_soc_pct': avg_soc,
+            'grid_down_fraction': grid_down_ratio
+        })
+    
     # Save results
     results_file = output_path / "simulation_results.csv"
     results.to_csv(results_file)
     print(f"\nResults saved to: {results_file}")
+    
+    # Export blackout events if any
+    if blackout_events:
+        be_df = pd.DataFrame(blackout_events)
+        be_df.to_csv(output_path / 'blackout_events.csv', index=False)
+        total_blackout_hours = int(results['blackout'].sum())
+        total_events = len(be_df)
+        worst = int(be_df['duration_hours'].max())
+        total_unserved = float(be_df['unserved_energy_kwh'].sum())
+        print(f"\n--- Resilience Summary (Blackouts) ---")
+        print(f"Blackout events: {total_events}")
+        print(f"Total blackout hours: {total_blackout_hours}")
+        print(f"Longest blackout: {worst} hours")
+        print(f"Total unserved energy: {total_unserved:.2f} kWh")
+        print(f"Details saved to: {output_path / 'blackout_events.csv'}")
+    else:
+        print(f"\n--- Resilience Summary (Blackouts) ---")
+        print(f"No blackout events. All load served across the period.")
     
     # Calculate summary statistics
     print("\n" + "=" * 60)
