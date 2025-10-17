@@ -286,8 +286,18 @@ class EnergySystem:
         
         Args:
             results_df: DataFrame with simulation results
-            save_path: Optional path to save figure
+            save_path: Optional path to save figure (PNG and SVG will be saved)
         """
+        # Export raw plot data
+        if save_path:
+            from pathlib import Path
+            base_path = Path(save_path).parent / Path(save_path).stem
+            plot_data = results_df[['pv_generation_kwh', 'load_kwh', 'battery_soc', 
+                                    'grid_import', 'grid_export', 'net_grid',
+                                    'pv_to_load', 'pv_to_battery', 'battery_to_load',
+                                    'self_sufficiency', 'grid_stable']].copy()
+            plot_data.to_csv(f"{base_path}_data.csv", index=True)
+        
         fig, axes = plt.subplots(5, 1, figsize=(14, 16))
         fig.suptitle('Energy System Simulation Results', fontsize=16, fontweight='bold')
         
@@ -386,8 +396,14 @@ class EnergySystem:
         plt.tight_layout()
         
         if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-            print(f"Plot saved to {save_path}")
+            from pathlib import Path
+            base_path = Path(save_path).with_suffix('')
+            # Save PNG
+            plt.savefig(f"{base_path}.png", dpi=300, bbox_inches='tight')
+            print(f"Plot saved to {base_path}.png")
+            # Save SVG
+            plt.savefig(f"{base_path}.svg", format='svg', bbox_inches='tight')
+            print(f"Plot saved to {base_path}.svg")
         
         return fig
 

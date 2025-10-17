@@ -1,0 +1,4 @@
+system,baseline_grid_cost,baseline_diesel_cost,solar_import_cost,solar_export_revenue,net_cost
+"Baseline
+(Grid + Diesel)",4119601.062122488,910797.8757550257,0.0,0.0,5030398.9378775135
+Solar + Battery,0.0,0.0,90984.64031373804,1031349.9230743176,-940365.2827605796

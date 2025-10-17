@@ -81,7 +81,25 @@ def plot_cumulative_energy(results: pd.DataFrame, save_path: str = None):
     plt.tight_layout()
     
     if save_path:
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        from pathlib import Path
+        base_path = Path(save_path).with_suffix('')
+        
+        # Export raw data
+        plot_data = pd.DataFrame({
+            'cumulative_pv': cumulative_pv,
+            'cumulative_load': cumulative_load,
+            'cumulative_grid_import': cumulative_grid_import,
+            'cumulative_grid_export': cumulative_grid_export,
+            'net_grid': net_grid
+        })
+        plot_data.to_csv(f"{base_path}_data.csv", index=True)
+        print(f"Plot data saved to {base_path}_data.csv")
+        
+        # Save PNG and SVG
+        plt.savefig(f"{base_path}.png", dpi=150, bbox_inches='tight')
+        print(f"Plot saved to {base_path}.png")
+        plt.savefig(f"{base_path}.svg", format='svg', bbox_inches='tight')
+        print(f"Plot saved to {base_path}.svg")
         plt.close()
     else:
         plt.show()
@@ -198,7 +216,23 @@ def plot_cost_over_time(results: pd.DataFrame, data: pd.DataFrame,
     plt.tight_layout()
     
     if save_path:
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        from pathlib import Path
+        base_path = Path(save_path).with_suffix('')
+        
+        # Export raw data
+        plot_data = pd.DataFrame({
+            'cumulative_baseline': cumulative_baseline,
+            'cumulative_solar': cumulative_solar,
+            'savings': cumulative_baseline - cumulative_solar
+        })
+        plot_data.to_csv(f"{base_path}_data.csv", index=True)
+        print(f"Plot data saved to {base_path}_data.csv")
+        
+        # Save PNG and SVG
+        plt.savefig(f"{base_path}.png", dpi=150, bbox_inches='tight')
+        print(f"Plot saved to {base_path}.png")
+        plt.savefig(f"{base_path}.svg", format='svg', bbox_inches='tight')
+        print(f"Plot saved to {base_path}.svg")
         plt.close()
     else:
         plt.show()
@@ -287,7 +321,26 @@ def plot_cost_comparison(baseline_costs: dict, solar_import_cost: float,
     plt.tight_layout()
     
     if save_path:
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        from pathlib import Path
+        base_path = Path(save_path).with_suffix('')
+        
+        # Export raw data
+        plot_data = pd.DataFrame({
+            'system': systems,
+            'baseline_grid_cost': [baseline_grid, 0],
+            'baseline_diesel_cost': [baseline_diesel, 0],
+            'solar_import_cost': [0, solar_import_cost],
+            'solar_export_revenue': [0, solar_export_revenue],
+            'net_cost': net_values
+        })
+        plot_data.to_csv(f"{base_path}_data.csv", index=False)
+        print(f"Plot data saved to {base_path}_data.csv")
+        
+        # Save PNG and SVG
+        plt.savefig(f"{base_path}.png", dpi=150, bbox_inches='tight')
+        print(f"Plot saved to {base_path}.png")
+        plt.savefig(f"{base_path}.svg", format='svg', bbox_inches='tight')
+        print(f"Plot saved to {base_path}.svg")
         plt.close()
     else:
         plt.show()
