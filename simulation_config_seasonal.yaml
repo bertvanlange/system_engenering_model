@@ -31,3 +31,8 @@ end_date: 2024-12-31
 winter_months: [12, 1, 2]  # December, January, February
 winter_min_soc: 0.5        # Minimum 50% SOC during winter months
 outage_min_soc: 0.0        # Allow battery to discharge below winter reserve during outages
+
+# CO2 emission factors (kg CO2 per kWh)
+co2_grid_kg_per_kwh: 0.4
+co2_diesel_kg_per_kwh: 0.8
+co2_pv_kg_per_kwh: 0.05

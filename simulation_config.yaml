@@ -32,3 +32,9 @@ end_date: 2024-12-31
 winter_months: [12, 1]  # December and January
 winter_min_soc: 0.5     # Minimum 50% SOC during winter months to handle outages
 outage_min_soc: 0.0     # Minimum SOC allowed during outages (0.0 = allow using reserve)
+
+# CO2 emission factors (kg CO2 per kWh)
+# Use grid average (e.g., 0.4 kg/kWh), diesel (e.g., 0.8 kg/kWh), and PV lifecycle (~0.05 kg/kWh)
+co2_grid_kg_per_kwh: 0.4
+co2_diesel_kg_per_kwh: 0.8
+co2_pv_kg_per_kwh: 0.05

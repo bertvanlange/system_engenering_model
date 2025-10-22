@@ -238,6 +238,201 @@ def plot_cost_over_time(results: pd.DataFrame, data: pd.DataFrame,
         plt.show()
 
 
+def plot_co2_comparison(results: pd.DataFrame, data: pd.DataFrame,
+                        co2_grid: float, co2_diesel: float, co2_pv: float,
+                        save_path_prefix: str = None):
+    """Plot CO2 emissions comparison: baseline vs solar+battery.
+
+    - Baseline: grid (when available) + diesel (when grid down)
+    - Solar+Battery: grid import emissions + PV lifecycle emissions
+    """
+    # Per-timestep CO2 (kg)
+    baseline_co2 = []
+    solar_co2 = []
+    for i in range(len(data)):
+        # Baseline
+        if data.iloc[i]['grid_stable']:
+            baseline_co2.append(data.iloc[i]['load_kw'] * co2_grid)
+        else:
+            baseline_co2.append(data.iloc[i]['load_kw'] * co2_diesel)
+
+        # Solar+battery system: grid imports have grid emissions, PV generation has lifecycle emissions
+        # For PV, count pv_generation_kwh * co2_pv as lifecycle overhead
+        grid_import_kwh = results.iloc[i]['grid_import'] if 'grid_import' in results.columns else 0
+        pv_kwh = results.iloc[i]['pv_generation_kwh'] if 'pv_generation_kwh' in results.columns else 0
+        solar_co2.append(grid_import_kwh * co2_grid + pv_kwh * co2_pv)
+
+    baseline_co2 = pd.Series(baseline_co2)
+    solar_co2 = pd.Series(solar_co2)
+
+    # Annual totals
+    total_baseline_co2 = baseline_co2.sum()
+    total_solar_co2 = solar_co2.sum()
+
+    # Monthly aggregation for time series plot
+    dates = hours_to_dates(len(data))
+    df_co2 = pd.DataFrame({'date': dates, 'baseline_co2': baseline_co2, 'solar_co2': solar_co2})
+    df_co2['month'] = [d.month for d in df_co2['date']]
+    monthly = df_co2.groupby('month')[['baseline_co2', 'solar_co2']].sum().reset_index()
+    # Compute monthly difference (baseline - solar)
+    monthly['diff_co2_kg'] = monthly['baseline_co2'] - monthly['solar_co2']
+
+    # Compute cumulative CO2 time series (starting at 0)
+    cumulative_baseline_co2 = df_co2['baseline_co2'].cumsum()
+    cumulative_solar_co2 = df_co2['solar_co2'].cumsum()
+
+    # Plot 1: Annual bar comparison
+    fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+    systems = ['Baseline (Grid+Diesel)', 'Solar+Battery']
+    values = [total_baseline_co2, total_solar_co2]
+    bars = ax.bar(systems, values, color=['tab:red', 'tab:green'], alpha=0.8)
+    ax.set_ylabel('Total CO2 (kg)')
+    ax.set_title('Annual CO2 Emissions: Baseline vs Solar+Battery', fontsize=12, fontweight='bold')
+    for i, v in enumerate(values):
+        ax.text(i, v + max(values)*0.01, f'{v:,.0f} kg', ha='center', va='bottom')
+
+    plt.tight_layout()
+    if save_path_prefix:
+        from pathlib import Path
+        base = Path(save_path_prefix).with_suffix('')
+        # export data
+        pd.DataFrame({'system': systems, 'co2_kg': values}).to_csv(f'{base}_annual_co2.csv', index=False)
+        plt.savefig(f'{base}_co2_annual.png', dpi=150, bbox_inches='tight')
+        plt.savefig(f'{base}_co2_annual.svg', format='svg', bbox_inches='tight')
+        plt.close()
+
+        # --- Financial-style CO2 comparison (stacked breakdown + net annual bars) ---
+        # Compute breakdowns
+        # Baseline breakdown: grid vs diesel
+        baseline_grid_co2 = df_co2[df_co2['date'].notna() & (data['grid_stable'].values == True)]['baseline_co2'].sum() if 'grid_stable' in data.columns else 0
+        baseline_diesel_co2 = df_co2[df_co2['date'].notna() & (data['grid_stable'].values == False)]['baseline_co2'].sum() if 'grid_stable' in data.columns else 0
+
+        # Solar system breakdown: grid import emissions and PV lifecycle emissions
+        solar_grid_import_co2 = results['grid_import'].sum() * co2_grid if 'grid_import' in results.columns else 0
+        solar_pv_co2 = results['pv_generation_kwh'].sum() * co2_pv if 'pv_generation_kwh' in results.columns else 0
+
+        # Prepare CSV data for this comparison
+        comp_df = pd.DataFrame({
+            'component': ['baseline_grid_co2', 'baseline_diesel_co2', 'solar_grid_import_co2', 'solar_pv_co2'],
+            'co2_kg': [baseline_grid_co2, baseline_diesel_co2, solar_grid_import_co2, solar_pv_co2]
+        })
+        comp_df.to_csv(f'{base}_co2_comparison_data.csv', index=False)
+
+        # Plot two-panel comparison similar to financial chart
+        fig, (ax1_co2, ax2_co2) = plt.subplots(1, 2, figsize=(16, 8))
+
+        # Left: stacked breakdown
+        systems_co2 = ['Baseline\n(Grid + Diesel)', 'Solar + Battery']
+        # Baseline stacked
+        ax1_co2.bar(0, baseline_grid_co2, label='Grid CO2', color='red', alpha=0.7)
+        ax1_co2.bar(0, baseline_diesel_co2, bottom=baseline_grid_co2, label='Diesel CO2', color='orange', alpha=0.7)
+        # Solar stacked
+        ax1_co2.bar(1, solar_grid_import_co2, label='Grid Import CO2', color='salmon', alpha=0.7)
+        ax1_co2.bar(1, solar_pv_co2, bottom=solar_grid_import_co2, label='PV Lifecycle CO2', color='lightgreen', alpha=0.7)
+
+        ax1_co2.axhline(y=0, color='black', linestyle='-', linewidth=0.8)
+        ax1_co2.set_ylabel('CO2 Emissions (kg)', fontsize=12)
+        ax1_co2.set_title('CO2 Breakdown Comparison', fontsize=14, fontweight='bold')
+        ax1_co2.set_xticks([0, 1])
+        ax1_co2.set_xticklabels(systems_co2, fontsize=11)
+        ax1_co2.legend(loc='upper right')
+        ax1_co2.grid(True, alpha=0.3, axis='y')
+
+        # Add value labels
+        baseline_total_co2 = baseline_grid_co2 + baseline_diesel_co2
+        solar_total_co2 = solar_grid_import_co2 + solar_pv_co2
+        ax1_co2.text(0, baseline_total_co2 + max(baseline_total_co2, solar_total_co2)*0.01, f'{baseline_total_co2:,.0f}', ha='center', va='bottom', fontsize=11, fontweight='bold', color='darkred')
+        ax1_co2.text(1, solar_total_co2 + max(baseline_total_co2, solar_total_co2)*0.01, f'{solar_total_co2:,.0f}', ha='center', va='bottom', fontsize=11, fontweight='bold', color='darkgreen')
+
+        # Right: Net annual CO2 bars
+        net_values_co2 = [baseline_total_co2, solar_total_co2]
+        colors_co2 = ['red' if v > 0 else 'green' for v in net_values_co2]
+        bars_co2 = ax2_co2.bar(systems_co2, net_values_co2, color=colors_co2, alpha=0.7, edgecolor='black', linewidth=1.5)
+        ax2_co2.axhline(y=0, color='black', linestyle='-', linewidth=1)
+        ax2_co2.set_ylabel('Net Annual CO2 (kg)', fontsize=12)
+        ax2_co2.set_title('Net Annual CO2 Comparison', fontsize=14, fontweight='bold')
+        ax2_co2.grid(True, alpha=0.3, axis='y')
+
+        # Add labels on bars
+        for i, (bar, value) in enumerate(zip(bars_co2, net_values_co2)):
+            label_y = value + (max(net_values_co2) * 0.02)
+            ax2_co2.text(i, label_y, f'{value:,.0f} kg', ha='center', va='bottom', fontsize=11, fontweight='bold')
+
+        # Add savings annotation (CO2 reduction)
+        co2_savings = baseline_total_co2 - solar_total_co2
+        reduction_pct = (co2_savings / baseline_total_co2 * 100) if baseline_total_co2 > 0 else 0
+        ax2_co2.text(0.5, max(net_values_co2) * 0.6, f'CO2 Reduction:\n{co2_savings:,.0f} kg\n({reduction_pct:.1f}% reduction)', ha='center', va='center', fontsize=12, fontweight='bold', bbox=dict(boxstyle='round,pad=0.8', facecolor='lightblue', alpha=0.7, edgecolor='black'))
+
+        plt.tight_layout()
+        plt.savefig(f'{base}_co2_comparison.png', dpi=150, bbox_inches='tight')
+        plt.savefig(f'{base}_co2_comparison.svg', format='svg', bbox_inches='tight')
+        plt.close()
+
+    # Plot 2: Monthly time series
+    fig, ax = plt.subplots(1, 1, figsize=(12, 5))
+    months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    ax.plot(monthly['month'], monthly['baseline_co2'], label='Baseline CO2', color='red', marker='o')
+    ax.plot(monthly['month'], monthly['solar_co2'], label='Solar+Battery CO2', color='green', marker='o')
+    ax.set_xticks(range(1,13))
+    ax.set_xticklabels(months)
+    ax.set_ylabel('Monthly CO2 (kg)')
+    ax.set_title('Monthly CO2 Emissions by System', fontsize=12, fontweight='bold')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    if save_path_prefix:
+        pd.DataFrame(monthly).to_csv(f'{base}_monthly_co2.csv', index=False)
+        plt.savefig(f'{base}_co2_monthly.png', dpi=150, bbox_inches='tight')
+        plt.savefig(f'{base}_co2_monthly.svg', format='svg', bbox_inches='tight')
+        plt.close()
+
+        # Plot 3: Monthly CO2 difference (Baseline - Solar)
+        fig, ax = plt.subplots(1, 1, figsize=(12, 5))
+        months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+        ax.bar(monthly['month'], monthly['diff_co2_kg'], color='tab:blue', alpha=0.8)
+        ax.set_xticks(range(1,13))
+        ax.set_xticklabels(months)
+        ax.set_ylabel('Monthly CO2 Difference (kg)')
+        ax.set_title('Monthly CO2 Reduction (Baseline - Solar+Battery)', fontsize=12, fontweight='bold')
+        ax.grid(True, alpha=0.3)
+        # Annotate bars with values
+        for idx, val in enumerate(monthly['diff_co2_kg']):
+            ax.text(monthly['month'].iloc[idx], val + max(monthly['diff_co2_kg']) * 0.01, f'{val:,.0f}',
+                    ha='center', va='bottom', fontsize=9)
+
+        plt.tight_layout()
+        # export monthly diff data and plots
+        monthly.to_csv(f'{base}_monthly_co2_diff.csv', index=False)
+        plt.savefig(f'{base}_co2_monthly_diff.png', dpi=150, bbox_inches='tight')
+        plt.savefig(f'{base}_co2_monthly_diff.svg', format='svg', bbox_inches='tight')
+        plt.close()
+
+    # Plot 4: Cumulative CO2 line chart (starts at 0) to compare which system consumed more over time
+    fig, ax = plt.subplots(1, 1, figsize=(14, 6))
+    dates_full = df_co2['date']
+    ax.plot(dates_full, cumulative_baseline_co2, label='Baseline (Cumulative CO2)', color='red', linewidth=2)
+    ax.plot(dates_full, cumulative_solar_co2, label='Solar+Battery (Cumulative CO2)', color='green', linewidth=2)
+    ax.set_xlabel('Time')
+    ax.set_ylabel('Cumulative CO2 (kg)')
+    ax.set_title('Cumulative CO2 Emissions Over Time (Baseline vs Solar+Battery)', fontsize=12, fontweight='bold')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    # Save underlying CSV (per-timestep cumulative values)
+    cum_df = pd.DataFrame({'date': dates_full, 'cumulative_baseline_co2_kg': cumulative_baseline_co2, 'cumulative_solar_co2_kg': cumulative_solar_co2})
+    cum_df.to_csv(f'{base}_co2_cumulative.csv', index=False)
+    plt.tight_layout()
+    plt.savefig(f'{base}_co2_cumulative.png', dpi=150, bbox_inches='tight')
+    plt.savefig(f'{base}_co2_cumulative.svg', format='svg', bbox_inches='tight')
+    plt.close()
+
+    return {
+        'total_baseline_co2_kg': total_baseline_co2,
+        'total_solar_co2_kg': total_solar_co2,
+        'monthly': monthly
+    }
+
+
 def plot_cost_comparison(baseline_costs: dict, solar_import_cost: float, 
                         solar_export_revenue: float, save_path: str = None):
     """
@@ -406,6 +601,10 @@ def run_simulation(irradiation_file: str, load_file: str, grid_stability_file: s
         winter_months = config.get('winter_months', [])
         winter_min_soc = config.get('winter_min_soc', 0.0)
         outage_min_soc = config.get('outage_min_soc', 0.0)
+        # CO2 emission factors
+        co2_grid = config.get('co2_grid_kg_per_kwh', 0.4)
+        co2_diesel = config.get('co2_diesel_kg_per_kwh', 0.8)
+        co2_pv = config.get('co2_pv_kg_per_kwh', 0.05)
     else:
         target_pv_peak_kw = None
         target_annual_load_kwh = None
@@ -419,6 +618,9 @@ def run_simulation(irradiation_file: str, load_file: str, grid_stability_file: s
         winter_months = []
         winter_min_soc = 0.0
         outage_min_soc = 0.0
+        co2_grid = 0.4
+        co2_diesel = 0.8
+        co2_pv = 0.05
     # Load input data
     print("\nLoading input data...")
     if values_only:
@@ -671,6 +873,43 @@ def run_simulation(irradiation_file: str, load_file: str, grid_stability_file: s
     print(f"Net grid energy: {total_grid_import - total_grid_export:.2f} kWh")
     print(f"Average self-sufficiency: {avg_self_sufficiency * 100:.2f}%")
     print(f"Total unmet load: {total_unmet_load:.2f} kWh")
+
+    # Prepare annual summary dictionary
+    annual_summary = {
+        'total_pv_generation_kwh': float(total_pv_generation),
+        'total_load_kwh': float(total_load),
+        'total_grid_import_kwh': float(total_grid_import),
+        'total_grid_export_kwh': float(total_grid_export),
+        'net_grid_energy_kwh': float(total_grid_import - total_grid_export),
+        'avg_self_sufficiency_pct': float(avg_self_sufficiency * 100),
+        'total_unmet_load_kwh': float(total_unmet_load)
+    }
+
+    # Add financials if available
+    if 'import_cost' in locals():
+        annual_summary['grid_import_cost_eur'] = float(import_cost)
+    if 'export_revenue' in locals():
+        annual_summary['grid_export_revenue_eur'] = float(export_revenue)
+    if 'net_balance' in locals():
+        annual_summary['net_electricity_balance_eur'] = float(net_balance)
+
+    # Add CO2 totals if CO2 computation ran
+    try:
+        if 'co2_res' in locals():
+            annual_summary['co2_baseline_kg'] = float(co2_res.get('total_baseline_co2_kg', 0.0))
+            annual_summary['co2_solar_kg'] = float(co2_res.get('total_solar_co2_kg', 0.0))
+    except Exception:
+        # ignore if co2_res unavailable
+        pass
+
+    # Write annual summary CSV
+    try:
+        summary_df = pd.DataFrame([annual_summary])
+        summary_file = output_path / 'annual_summary.csv'
+        summary_df.to_csv(summary_file, index=False)
+        print(f"\nAnnual summary saved to: {summary_file}")
+    except Exception as e:
+        print(f"Failed to write annual summary CSV: {e}")
     
     # Calculate costs if specified
     if grid_import_cost is not None or grid_export_price is not None:
@@ -751,6 +990,12 @@ def run_simulation(irradiation_file: str, load_file: str, grid_stability_file: s
             plot_cost_over_time(results, data, grid_import_cost, grid_export_price,
                               diesel_cost_per_kwh, save_path=str(cost_time_plot_file))
             print(f"Cost over time chart saved to: {cost_time_plot_file}")
+            # CO2 comparison
+            print("\nGenerating CO2 emissions comparison plots...")
+            co2_prefix = str(output_path / 'co2_comparison')
+            co2_res = plot_co2_comparison(results, data, co2_grid, co2_diesel, co2_pv, save_path_prefix=co2_prefix)
+            print(f"CO2 annual - Baseline: {co2_res['total_baseline_co2_kg']:.0f} kg, Solar: {co2_res['total_solar_co2_kg']:.0f} kg")
+            print(f"CO2 plots and data saved with prefix: {co2_prefix}")
     
     print("\n" + "=" * 60)
     print("Simulation completed successfully!")
