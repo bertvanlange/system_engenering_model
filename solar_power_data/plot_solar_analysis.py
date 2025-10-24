@@ -46,6 +46,9 @@ ax1.fill_between(df['interval_start_local'], df[solar_col], alpha=0.2, color='or
 # Add season labels
 ax1.axvspan(df['interval_start_local'].min(), pd.Timestamp('2024-03-01', tz='US/Central'), 
             alpha=0.05, color='blue', label='Winter')
+# Also shade December (previous year month) so winter covers Dec-Jan-Feb visually on the plot
+ax1.axvspan(pd.Timestamp('2024-12-01', tz='US/Central'), pd.Timestamp('2024-12-31 23:59:59', tz='US/Central'),
+            alpha=0.05, color='blue')
 ax1.axvspan(pd.Timestamp('2024-06-01', tz='US/Central'), pd.Timestamp('2024-09-01', tz='US/Central'), 
             alpha=0.05, color='red', label='Summer')
 ax1.legend(loc='upper right', fontsize=10)
@@ -143,44 +146,9 @@ print("Creating Plot 8: Statistics Summary...")
 ax8 = fig.add_subplot(gs[3, 2])
 ax8.axis('off')
 
-# Calculate statistics
-month_names_list = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-best_month_idx = df.groupby("month")[solar_col].mean().idxmax()
-worst_month_idx = df.groupby("month")[solar_col].mean().idxmin()
-
-stats_data = [
-    ['Metric', 'Value'],
-    ['─────────────────', '──────────────'],
-    ['Total Energy/Year', f'{df[solar_col].sum()/1e6:.2f} TWh'],
-    ['Average Output', f'{df[solar_col].mean():.0f} MW'],
-    ['Peak Output', f'{df[solar_col].max():.0f} MW'],
-    ['Min Output', f'{df[solar_col].min():.1f} MW'],
-    ['', ''],
-    ['Summer Average', f'{df[df["month"].isin([6,7,8])][solar_col].mean():.0f} MW'],
-    ['Winter Average', f'{df[df["month"].isin([12,1,2])][solar_col].mean():.0f} MW'],
-    ['Seasonal Ratio', f'{df[df["month"].isin([6,7,8])][solar_col].mean() / df[df["month"].isin([12,1,2])][solar_col].mean():.2f}x'],
-    ['', ''],
-    ['Best Month', month_names_list[best_month_idx-1]],
-    ['Lowest Month', month_names_list[worst_month_idx-1]],
-]
-
-table = ax8.table(cellText=stats_data, cellLoc='left', loc='center',
-                  colWidths=[0.6, 0.4])
-table.auto_set_font_size(False)
-table.set_fontsize(9)
-table.scale(1, 2)
-
-# Style header row
-for i in range(2):
-    table[(0, i)].set_facecolor('#4CAF50')
-    table[(0, i)].set_text_props(weight='bold', color='white')
-
-# Style data rows
-for i in range(2, len(stats_data)):
-    for j in range(2):
-        table[(i, j)].set_facecolor('#f0f0f0' if i % 2 == 0 else 'white')
-
-ax8.set_title('Annual Statistics', fontsize=11, fontweight='bold', pad=20)
+# (Annual statistics table removed from PNG as requested)
+# Keep the subplot empty/off so the comprehensive PNG no longer contains the large table
+ax8.set_title('')
 
 # Add main title
 fig.suptitle('Solar Power System Analysis - 2024 (Realistic Padded Data with Daily Variations)', 

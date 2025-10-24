@@ -433,6 +433,97 @@ def plot_co2_comparison(results: pd.DataFrame, data: pd.DataFrame,
     }
 
 
+def plot_winter_soc_selfsufficiency(results: pd.DataFrame, start_date: datetime, winter_months: list, save_path_prefix: str = None):
+    """Plot battery SOC and self-sufficiency for the configured winter months.
+
+    Args:
+        results: simulation results DataFrame (must contain 'battery_soc' and 'self_sufficiency')
+        start_date: datetime corresponding to index 0 in results
+        winter_months: list of month numbers (1-12) to include
+        save_path_prefix: path prefix (string) to save outputs, e.g. 'output/co2_comparison'
+
+    Produces PNG, SVG and CSV of filtered time series.
+    """
+    if not winter_months:
+        print("No winter months configured, skipping winter SOC/self-sufficiency plot.")
+        return None
+
+    # build dates for index
+    dates = hours_to_dates(len(results), start_date=start_date.strftime('%Y-%m-%d') if start_date else '2024-01-01')
+    df = results.copy().reset_index(drop=True)
+    df['date'] = dates
+    df['month'] = [d.month for d in df['date']]
+
+    # filter to winter months
+    winter_df = df[df['month'].isin(winter_months)].copy().reset_index(drop=True)
+    if winter_df.empty:
+        print("Winter months selection contains no data; skipping winter plot.")
+        return None
+
+    # Handle ordering so we can plot from a chosen start month (support overflow across year boundary)
+    # Choose start month: prefer December (12) if present, otherwise the smallest configured month
+    start_month = 12 if 12 in winter_months else min(winter_months)
+    # Create an order key that wraps months after start_month
+    winter_df['order_key'] = winter_df['month'].apply(lambda m: (m - start_month) % 12)
+    # Sort by order_key then by actual date to keep hourly order within each month
+    winter_df = winter_df.sort_values(['order_key', 'date']).reset_index(drop=True)
+
+    # Prepare series as percentages
+    winter_df['battery_soc_pct'] = winter_df['battery_soc'] * 100
+    winter_df['self_sufficiency_pct'] = winter_df['self_sufficiency'] * 100
+
+    # Create plot indices so Dec..Jan appear contiguous (overflow)
+    winter_df['plot_index'] = range(len(winter_df))
+
+    # Find month boundaries for xticks and labels
+    month_starts = winter_df.groupby(['month', 'order_key'])['plot_index'].first().reset_index()
+    # Map month number to short name
+    month_names = {1: 'Jan', 2: 'Feb', 3: 'Mar', 4: 'Apr', 5: 'May', 6: 'Jun',
+                   7: 'Jul', 8: 'Aug', 9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Dec'}
+
+    # Plot two stacked subplots: battery SOC on top, self-sufficiency below
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
+
+    ax1.plot(winter_df['plot_index'], winter_df['battery_soc_pct'], label='Battery SOC (%)', color='tab:green', linewidth=1.5)
+    ax1.set_ylabel('Battery SOC (%)')
+    ax1.set_ylim(0, 100)
+    ax1.grid(True, alpha=0.3)
+    ax1.legend(loc='upper left')
+
+    ax2.plot(winter_df['plot_index'], winter_df['self_sufficiency_pct'], label='Self-sufficiency (%)', color='tab:blue', linewidth=1.5)
+    ax2.set_ylabel('Self-sufficiency (%)')
+    ax2.set_ylim(0, 100)
+    ax2.grid(True, alpha=0.3)
+    ax2.legend(loc='upper left')
+
+    # X ticks at month starts with labels like 'Dec' and 'Jan'
+    xticks = month_starts['plot_index'].tolist()
+    xlabels = [f"{month_names.get(m, str(m))}" for m in month_starts['month'].tolist()]
+    ax2.set_xticks(xticks)
+    ax2.set_xticklabels(xlabels)
+
+    # Add small title and a combined xlabel
+    fig.suptitle('Winter Window: Battery SOC and Self-sufficiency (Dec → Jan overflow)', fontsize=14, fontweight='bold')
+    ax2.set_xlabel('Month')
+
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+
+    # Save outputs
+    if save_path_prefix:
+        from pathlib import Path
+        base = Path(save_path_prefix).with_suffix('')
+        # CSV includes original date for reference plus plot_index ordering
+        winter_df[['date', 'month', 'plot_index', 'battery_soc_pct', 'self_sufficiency_pct']].to_csv(f'{base}_winter_soc_selfsufficiency_data.csv', index=False)
+        plt.savefig(f'{base}_winter_soc_selfsufficiency.png', dpi=150, bbox_inches='tight')
+        plt.savefig(f'{base}_winter_soc_selfsufficiency.svg', format='svg', bbox_inches='tight')
+        plt.close()
+        print(f"Winter SOC/self-sufficiency plot and data saved with prefix: {base}_winter_soc_selfsufficiency.*")
+        return f'{base}_winter_soc_selfsufficiency'
+    else:
+        plt.show()
+        return None
+
+
 def plot_cost_comparison(baseline_costs: dict, solar_import_cost: float, 
                         solar_export_revenue: float, save_path: str = None):
     """
@@ -565,9 +656,7 @@ def run_simulation(irradiation_file: str, load_file: str, grid_stability_file: s
     print("Energy System Simulation")
     print("=" * 60)
     
-    # Create output directory
-    output_path = Path(output_dir)
-    output_path.mkdir(exist_ok=True)
+    # Note: output directory will be created after config values are applied
     
 
     # If config is provided, override all file paths and parameters
@@ -621,6 +710,9 @@ def run_simulation(irradiation_file: str, load_file: str, grid_stability_file: s
         co2_grid = 0.4
         co2_diesel = 0.8
         co2_pv = 0.05
+    # After applying config overrides, create the output directory so config.output_dir is respected
+    output_path = Path(output_dir)
+    output_path.mkdir(exist_ok=True)
     # Load input data
     print("\nLoading input data...")
     if values_only:
@@ -949,6 +1041,14 @@ def run_simulation(irradiation_file: str, load_file: str, grid_stability_file: s
     cumulative_plot_file = output_path / "cumulative_energy_flows.png"
     plot_cumulative_energy(results, save_path=str(cumulative_plot_file))
     print(f"Cumulative energy plot saved to: {cumulative_plot_file}")
+
+    # Create winter months SOC/self-sufficiency plot
+    try:
+        winter_plot_prefix = str(output_path / 'co2_comparison')
+        # use sim_start_date (datetime) for date construction if available
+        plot_winter_soc_selfsufficiency(results, sim_start_date if sim_start_date else datetime(2024,1,1), winter_months, save_path_prefix=winter_plot_prefix)
+    except Exception as e:
+        print(f"Failed to create winter SOC/self-sufficiency plot: {e}")
     
     # Compare with baseline system (grid + diesel)
     if grid_import_cost is not None:

@@ -1,0 +1,2 @@
+total_pv_generation_kwh,total_load_kwh,total_grid_import_kwh,total_grid_export_kwh,net_grid_energy_kwh,avg_self_sufficiency_pct,total_unmet_load_kwh
+29839878.88401708,18300000.000000004,406591.89782273653,10306225.603752574,-9899633.705929838,97.60508090437928,-167.56916212371834
