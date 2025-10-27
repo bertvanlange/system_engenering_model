@@ -100,6 +100,12 @@ def plot_cumulative_energy(results: pd.DataFrame, save_path: str = None):
         print(f"Plot saved to {base_path}.png")
         plt.savefig(f"{base_path}.svg", format='svg', bbox_inches='tight')
         print(f"Plot saved to {base_path}.svg")
+        # Also export EPS for vector-friendly use in older publishing workflows
+        try:
+            plt.savefig(f"{base_path}.eps", format='eps', bbox_inches='tight')
+            print(f"Plot saved to {base_path}.eps")
+        except Exception:
+            print(f"Failed to save EPS for {base_path}")
         plt.close()
     else:
         plt.show()
@@ -233,6 +239,12 @@ def plot_cost_over_time(results: pd.DataFrame, data: pd.DataFrame,
         print(f"Plot saved to {base_path}.png")
         plt.savefig(f"{base_path}.svg", format='svg', bbox_inches='tight')
         print(f"Plot saved to {base_path}.svg")
+        # Also write EPS
+        try:
+            plt.savefig(f"{base_path}.eps", format='eps', bbox_inches='tight')
+            print(f"Plot saved to {base_path}.eps")
+        except Exception:
+            print(f"Failed to save EPS for {base_path}")
         plt.close()
     else:
         plt.show()
@@ -299,6 +311,10 @@ def plot_co2_comparison(results: pd.DataFrame, data: pd.DataFrame,
         pd.DataFrame({'system': systems, 'co2_kg': values}).to_csv(f'{base}_annual_co2.csv', index=False)
         plt.savefig(f'{base}_co2_annual.png', dpi=150, bbox_inches='tight')
         plt.savefig(f'{base}_co2_annual.svg', format='svg', bbox_inches='tight')
+        try:
+            plt.savefig(f'{base}_co2_annual.eps', format='eps', bbox_inches='tight')
+        except Exception:
+            print(f'Failed to save EPS for {base}_co2_annual')
         plt.close()
 
         # --- Financial-style CO2 comparison (stacked breakdown + net annual bars) ---
@@ -366,6 +382,10 @@ def plot_co2_comparison(results: pd.DataFrame, data: pd.DataFrame,
         plt.tight_layout()
         plt.savefig(f'{base}_co2_comparison.png', dpi=150, bbox_inches='tight')
         plt.savefig(f'{base}_co2_comparison.svg', format='svg', bbox_inches='tight')
+        try:
+            plt.savefig(f'{base}_co2_comparison.eps', format='eps', bbox_inches='tight')
+        except Exception:
+            print(f'Failed to save EPS for {base}_co2_comparison')
         plt.close()
 
     # Plot 2: Monthly time series
@@ -385,6 +405,10 @@ def plot_co2_comparison(results: pd.DataFrame, data: pd.DataFrame,
         pd.DataFrame(monthly).to_csv(f'{base}_monthly_co2.csv', index=False)
         plt.savefig(f'{base}_co2_monthly.png', dpi=150, bbox_inches='tight')
         plt.savefig(f'{base}_co2_monthly.svg', format='svg', bbox_inches='tight')
+        try:
+            plt.savefig(f'{base}_co2_monthly.eps', format='eps', bbox_inches='tight')
+        except Exception:
+            print(f'Failed to save EPS for {base}_co2_monthly')
         plt.close()
 
         # Plot 3: Monthly CO2 difference (Baseline - Solar)
@@ -406,6 +430,10 @@ def plot_co2_comparison(results: pd.DataFrame, data: pd.DataFrame,
         monthly.to_csv(f'{base}_monthly_co2_diff.csv', index=False)
         plt.savefig(f'{base}_co2_monthly_diff.png', dpi=150, bbox_inches='tight')
         plt.savefig(f'{base}_co2_monthly_diff.svg', format='svg', bbox_inches='tight')
+        try:
+            plt.savefig(f'{base}_co2_monthly_diff.eps', format='eps', bbox_inches='tight')
+        except Exception:
+            print(f'Failed to save EPS for {base}_co2_monthly_diff')
         plt.close()
 
     # Plot 4: Cumulative CO2 line chart (starts at 0) to compare which system consumed more over time
@@ -424,6 +452,10 @@ def plot_co2_comparison(results: pd.DataFrame, data: pd.DataFrame,
     plt.tight_layout()
     plt.savefig(f'{base}_co2_cumulative.png', dpi=150, bbox_inches='tight')
     plt.savefig(f'{base}_co2_cumulative.svg', format='svg', bbox_inches='tight')
+    try:
+        plt.savefig(f'{base}_co2_cumulative.eps', format='eps', bbox_inches='tight')
+    except Exception:
+        print(f'Failed to save EPS for {base}_co2_cumulative')
     plt.close()
 
     return {
@@ -516,6 +548,10 @@ def plot_winter_soc_selfsufficiency(results: pd.DataFrame, start_date: datetime,
         winter_df[['date', 'month', 'plot_index', 'battery_soc_pct', 'self_sufficiency_pct']].to_csv(f'{base}_winter_soc_selfsufficiency_data.csv', index=False)
         plt.savefig(f'{base}_winter_soc_selfsufficiency.png', dpi=150, bbox_inches='tight')
         plt.savefig(f'{base}_winter_soc_selfsufficiency.svg', format='svg', bbox_inches='tight')
+        try:
+            plt.savefig(f'{base}_winter_soc_selfsufficiency.eps', format='eps', bbox_inches='tight')
+        except Exception:
+            print(f'Failed to save EPS for {base}_winter_soc_selfsufficiency')
         plt.close()
         print(f"Winter SOC/self-sufficiency plot and data saved with prefix: {base}_winter_soc_selfsufficiency.*")
         return f'{base}_winter_soc_selfsufficiency'
@@ -627,6 +663,11 @@ def plot_cost_comparison(baseline_costs: dict, solar_import_cost: float,
         print(f"Plot saved to {base_path}.png")
         plt.savefig(f"{base_path}.svg", format='svg', bbox_inches='tight')
         print(f"Plot saved to {base_path}.svg")
+        try:
+            plt.savefig(f"{base_path}.eps", format='eps', bbox_inches='tight')
+            print(f"Plot saved to {base_path}.eps")
+        except Exception:
+            print(f"Failed to save EPS for {base_path}")
         plt.close()
     else:
         plt.show()

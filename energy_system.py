@@ -404,6 +404,12 @@ class EnergySystem:
             # Save SVG
             plt.savefig(f"{base_path}.svg", format='svg', bbox_inches='tight')
             print(f"Plot saved to {base_path}.svg")
+            # Save EPS as well (best-effort)
+            try:
+                plt.savefig(f"{base_path}.eps", format='eps', bbox_inches='tight')
+                print(f"Plot saved to {base_path}.eps")
+            except Exception:
+                print(f"Failed to save EPS for {base_path}")
         
         return fig
 
