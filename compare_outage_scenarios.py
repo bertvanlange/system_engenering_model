@@ -50,7 +50,8 @@ for scenario_name, file_path in outage_files.items():
         # Highlight winter months
         winter_months = [1, 2, 12]
         for month in winter_months:
-            ax.axvspan(month - 0.4, month + 0.4, alpha=0.1, color='lightblue')
+            # Use a light pastel color (no transparency) so EPS output remains light
+            ax.axvspan(month - 0.4, month + 0.4, facecolor='#e9f2ff', zorder=0)
 
 # Plot 2: Total outage hours by scenario
 ax = axes[1]

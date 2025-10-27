@@ -42,7 +42,8 @@ ax1.xaxis.set_major_locator(mdates.MonthLocator())
 
 # Add shading to show original vs padded data
 original_end = pd.Timestamp('2024-01-13 23:00:00', tz='US/Central')
-ax1.axvspan(df['interval_start_local'].min(), original_end, alpha=0.1, color='green', label='Original Data Period (Jan 1-13)')
+# Use a solid, light green (no alpha) so EPS output preserves a light background band
+ax1.axvspan(df['interval_start_local'].min(), original_end, facecolor='#dff7e6', zorder=0, label='Original Data Period (Jan 1-13)')
 ax1.legend(loc='upper right')
 
 # 2. Sample Week (first week of June)

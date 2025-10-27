@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 import matplotlib.pyplot as plt
+import numpy as np
 
 # Path to the dataset folder
 dataset_folder = "Dataset on Hourly Load Profiles for 24 Facilities (8760 hours)"
@@ -30,12 +31,26 @@ for file in files:
     else:
         df.index = pd.RangeIndex(len(df))
 
-    # Plot all columns except the index
-    ax = df.plot(title=f"{file} - {df.index[0] if len(df) > 0 else ''}")
+    # Plot numeric columns only
+    numeric = df.select_dtypes(include=[np.number])
+    if numeric.empty:
+        print(f"Skipping {file}: no numeric columns to plot")
+        continue
+    ax = numeric.plot(title=f"{file} - {df.index[0] if len(df) > 0 else ''}")
     plt.xlabel('Datetime' if datetime_col else 'Index')
     plt.ylabel('Value')
     plt.tight_layout()
-    image_filename = os.path.splitext(file)[0] + ".png"
-    plt.savefig(image_filename)
-    plt.show(block=False)
-    plt.pause(0.1)
+    base_name = os.path.splitext(file)[0]
+    image_png = base_name + ".png"
+    image_svg = base_name + ".svg"
+    image_eps = base_name + ".eps"
+    plt.savefig(image_png, dpi=150, bbox_inches='tight')
+    try:
+        plt.savefig(image_svg, format='svg', bbox_inches='tight')
+    except Exception:
+        print(f"Failed to save SVG for {image_svg}")
+    try:
+        plt.savefig(image_eps, format='eps', bbox_inches='tight')
+    except Exception:
+        print(f"Failed to save EPS for {image_eps} (PostScript backend may not support transparency)")
+    plt.close()

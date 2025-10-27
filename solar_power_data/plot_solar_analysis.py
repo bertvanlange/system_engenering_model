@@ -44,13 +44,14 @@ ax1.xaxis.set_major_locator(mdates.MonthLocator())
 ax1.fill_between(df['interval_start_local'], df[solar_col], alpha=0.2, color='orange')
 
 # Add season labels
+# Use solid pastel colors (no alpha) so EPS output matches the PNG appearance
 ax1.axvspan(df['interval_start_local'].min(), pd.Timestamp('2024-03-01', tz='US/Central'), 
-            alpha=0.05, color='blue', label='Winter')
+            facecolor='#d6e8ff', zorder=0, label='Winter')
 # Also shade December (previous year month) so winter covers Dec-Jan-Feb visually on the plot
 ax1.axvspan(pd.Timestamp('2024-12-01', tz='US/Central'), pd.Timestamp('2024-12-31 23:59:59', tz='US/Central'),
-            alpha=0.05, color='blue')
+            facecolor='#d6e8ff', zorder=0)
 ax1.axvspan(pd.Timestamp('2024-06-01', tz='US/Central'), pd.Timestamp('2024-09-01', tz='US/Central'), 
-            alpha=0.05, color='red', label='Summer')
+            facecolor='#ffd6d6', zorder=0, label='Summer')
 ax1.legend(loc='upper right', fontsize=10)
 
 # 2. Monthly Box Plot - Distribution
@@ -156,8 +157,21 @@ fig.suptitle('Solar Power System Analysis - 2024 (Realistic Padded Data with Dai
 
 # Save the plot
 output_file = base_dir / "solar_power_comprehensive_analysis.png"
+svg_file = base_dir / "solar_power_comprehensive_analysis.svg"
+eps_file = base_dir / "solar_power_comprehensive_analysis.eps"
 plt.savefig(output_file, dpi=300, bbox_inches='tight')
 print(f"\n✓ Comprehensive analysis plot saved to: {output_file.name}")
+try:
+    plt.savefig(svg_file, format='svg', bbox_inches='tight')
+    print(f"✓ Comprehensive analysis plot saved to: {svg_file.name}")
+except Exception:
+    print(f"Failed to save SVG: {svg_file}")
+try:
+    # Save vector EPS (Matplotlib will render vectors where possible)
+    plt.savefig(eps_file, format='eps', bbox_inches='tight')
+    print(f"✓ Comprehensive analysis plot saved to: {eps_file.name}")
+except Exception:
+    print(f"Failed to save EPS: {eps_file}")
 
 # Print detailed statistics
 print("\n" + "="*80)
@@ -190,4 +204,5 @@ print("\n" + "="*80)
 print("ANALYSIS COMPLETE!")
 print("="*80)
 
-plt.show()
+# Close figure in non-interactive/scripted runs to avoid blocking
+plt.close(fig)

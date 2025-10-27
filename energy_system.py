@@ -375,23 +375,66 @@ class EnergySystem:
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
         ax.xaxis.set_major_locator(mdates.MonthLocator())
         
-        # Mark grid instability periods in all plots
+        # Mark grid instability periods in all plots using light pastel spans behind the lines
         if 'grid_stable' in results_df.columns:
-            for ax in axes:
-                unstable_periods = results_df[results_df['grid_stable'] == False]
-                if len(unstable_periods) > 0:
-                    for idx in unstable_periods.index:
-                        if idx < len(dates):
-                            ax.axvline(x=dates[idx], alpha=0.1, color='red', linewidth=0.5)
+            unstable_periods = results_df[results_df['grid_stable'] == False]
+            if len(unstable_periods) > 0:
+                # Convert indices to contiguous ranges to draw as wider spans
+                idxs = unstable_periods.index.to_numpy()
+                ranges = []
+                start_idx = None
+                prev_idx = None
+                for i in idxs:
+                    if start_idx is None:
+                        start_idx = int(i)
+                        prev_idx = int(i)
+                    elif int(i) == prev_idx + 1:
+                        prev_idx = int(i)
+                    else:
+                        ranges.append((start_idx, prev_idx))
+                        start_idx = int(i)
+                        prev_idx = int(i)
+                if start_idx is not None:
+                    ranges.append((start_idx, prev_idx))
+
+                # Draw a light pastel band (no alpha) behind the plotted lines so EPS matches PNG
+                for ax in axes:
+                    for (s, e) in ranges:
+                        if s < len(dates):
+                            start_dt = dates[s]
+                            # end at the hour after the last index to cover the entire hour
+                            end_dt = dates[e] + timedelta(hours=1)
+                            ax.axvspan(start_dt, end_dt, facecolor='#ffd6d6', zorder=0)
         
-        # Mark blackout periods (unmet load > 0) in all plots with darker lines
+        # Mark blackout periods (unmet load > 0) as faint background spans
         if 'unmet_load' in results_df.columns:
-            for ax in axes:
-                blackout_periods = results_df[results_df['unmet_load'] > 0]
-                if len(blackout_periods) > 0:
-                    for idx in blackout_periods.index:
-                        if idx < len(dates):
-                            ax.axvline(x=dates[idx], alpha=0.3, color='black', linewidth=0.7)
+            blackout_periods = results_df[results_df['unmet_load'] > 0]
+            if len(blackout_periods) > 0:
+                # Group contiguous indices into ranges
+                idxs = blackout_periods.index.to_numpy()
+                ranges = []
+                start_idx = None
+                prev_idx = None
+                for i in idxs:
+                    if start_idx is None:
+                        start_idx = int(i)
+                        prev_idx = int(i)
+                    elif int(i) == prev_idx + 1:
+                        prev_idx = int(i)
+                    else:
+                        ranges.append((start_idx, prev_idx))
+                        start_idx = int(i)
+                        prev_idx = int(i)
+                if start_idx is not None:
+                    ranges.append((start_idx, prev_idx))
+
+                # Draw a faint gray background span for each range (no alpha so EPS remains light)
+                for ax in axes:
+                    for (s, e) in ranges:
+                        if s < len(dates):
+                            start_dt = dates[s]
+                            end_dt = dates[e] + timedelta(hours=1)
+                            ax.axvspan(start_dt, end_dt, facecolor='#f2f2f2', zorder=0)
         
         plt.tight_layout()
         
